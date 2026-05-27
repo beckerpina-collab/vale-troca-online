@@ -267,7 +267,8 @@ async function handleApi(req, res) {
     }
   }
 
-  if (!isAdmin(user, res) && ["/api/company", "/api/sellers"].some((prefix) => pathname.startsWith(prefix))) {
+  const adminOnlyPath = ["/api/company", "/api/sellers"].some((prefix) => pathname.startsWith(prefix));
+  if (adminOnlyPath && !isAdmin(user, res)) {
     return;
   }
 
