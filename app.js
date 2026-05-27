@@ -48,6 +48,7 @@ const defaults = {
   },
   sellers: [],
   vouchers: [],
+  users: [],
 };
 
 let app = {
@@ -88,6 +89,7 @@ async function refreshState() {
   app.company = { ...defaults.company, ...state.company };
   app.sellers = state.sellers || [];
   app.vouchers = state.vouchers || [];
+  app.users = state.users || [];
   settingsForm = { ...app.company };
   if (!form.vendedora) form.vendedora = app.sellers[0] || "";
   form.validade = addDaysInput(form.diaCompra, app.company.diasValidade);
@@ -184,11 +186,15 @@ function renderLogin() {
 }
 
 function renderApp() {
+  const content =
+    app.view === "config" && app.user.role === "admin"
+      ? renderSettingsView()
+      : renderEmitirView();
   return `
     <div class="app-shell">
       ${renderTopbar()}
       <main class="container">
-        ${app.view === "emitir" ? renderEmitirView() : renderSettingsView()}
+        ${content}
       </main>
     </div>
     <div id="print-root" class="print-only">${renderPrintArea()}</div>
@@ -208,7 +214,11 @@ function renderTopbar() {
         <div class="top-actions">
           <div class="segmented" aria-label="Navegacao principal">
             <button type="button" class="${app.view === "emitir" ? "active" : ""}" data-view="emitir">Emitir</button>
-            <button type="button" class="${app.view === "config" ? "active" : ""}" data-view="config">Config</button>
+            ${
+              app.user.role === "admin"
+                ? `<button type="button" class="${app.view === "config" ? "active" : ""}" data-view="config">Config</button>`
+                : ""
+            }
           </div>
           <button class="btn icon ghost" type="button" id="toggle-theme" title="Alternar tema" aria-label="Alternar tema">
             ${app.theme === "dark" ? icons.sun : icons.moon}
@@ -441,6 +451,18 @@ function renderSettingsView() {
         </div>
         <div class="panel-body">${renderSellers()}</div>
       </div>
+      <div class="panel users-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            ${icons.logOut}
+            <div>
+              <h2>Usuarios</h2>
+              <p>Cadastre acessos e altere senhas sem mexer no servidor.</p>
+            </div>
+          </div>
+        </div>
+        <div class="panel-body">${renderUsers()}</div>
+      </div>
     </section>
   `;
 }
@@ -509,6 +531,43 @@ function renderSellerItem(seller) {
       <strong>${escapeHtml(seller)}</strong>
       <button class="btn icon small ghost" type="button" data-remove-seller="${escapeHtml(seller)}" title="Remover" aria-label="Remover">${icons.trash}</button>
     </div>
+  `;
+}
+
+function renderUsers() {
+  return `
+    <form id="user-form" class="user-form">
+      <input name="username" placeholder="usuario" required autocomplete="off" />
+      <input name="displayName" placeholder="nome exibido" required autocomplete="off" />
+      <select name="role">
+        <option value="operador">Operador</option>
+        <option value="admin">Admin</option>
+      </select>
+      <input name="password" type="password" placeholder="senha" required autocomplete="new-password" />
+      <button class="btn primary" type="submit">${icons.plus}Adicionar</button>
+    </form>
+    ${
+      app.users.length
+        ? `<div class="user-list">${app.users.map(renderUserItem).join("")}</div>`
+        : '<div class="empty-state">Nenhum usuario carregado.</div>'
+    }
+  `;
+}
+
+function renderUserItem(user) {
+  const isSelf = user.id === app.user.id;
+  return `
+    <form class="user-item" data-user-id="${escapeHtml(user.id)}">
+      <input name="username" value="${escapeHtml(user.username)}" required autocomplete="off" />
+      <input name="displayName" value="${escapeHtml(user.displayName || user.username)}" required autocomplete="off" />
+      <select name="role">
+        <option value="operador" ${user.role === "operador" ? "selected" : ""}>Operador</option>
+        <option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option>
+      </select>
+      <input name="password" type="password" placeholder="nova senha" autocomplete="new-password" />
+      <button class="btn small ghost" type="submit">${icons.save}Salvar</button>
+      <button class="btn icon small danger" type="button" data-remove-user="${escapeHtml(user.id)}" ${isSelf ? "disabled" : ""} title="Remover" aria-label="Remover">${icons.trash}</button>
+    </form>
   `;
 }
 
@@ -592,6 +651,7 @@ async function onLogin(event) {
     app.company = { ...defaults.company, ...data.state.company };
     app.sellers = data.state.sellers || [];
     app.vouchers = data.state.vouchers || [];
+    app.users = data.state.users || [];
     settingsForm = { ...app.company };
     form = makeInitialForm();
     render();
@@ -823,12 +883,72 @@ function bindSettings() {
       }
     });
   });
+
+  document.getElementById("user-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const button = event.currentTarget.querySelector("button");
+    button.disabled = true;
+    try {
+      const data = await api("/api/users", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      app.users = data.users || [];
+      render();
+      showToast("Usuario adicionado.");
+    } catch (error) {
+      button.disabled = false;
+      showToast(error.message);
+    }
+  });
+
+  document.querySelectorAll(".user-item").forEach((item) => {
+    item.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+      const button = event.currentTarget.querySelector("button[type='submit']");
+      button.disabled = true;
+      try {
+        const data = await api(`/api/users/${event.currentTarget.dataset.userId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        app.users = data.users || [];
+        if (event.currentTarget.dataset.userId === app.user.id) {
+          const updatedSelf = app.users.find((user) => user.id === app.user.id);
+          if (updatedSelf) app.user = updatedSelf;
+        }
+        render();
+        showToast("Usuario atualizado.");
+      } catch (error) {
+        button.disabled = false;
+        showToast(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-remove-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = app.users.find((user) => user.id === button.dataset.removeUser);
+      if (!target || !confirm(`Remover usuario ${target.username}?`)) return;
+      try {
+        const data = await api(`/api/users/${target.id}`, { method: "DELETE" });
+        app.users = data.users || [];
+        render();
+        showToast("Usuario removido.");
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
 }
 
 function applyState(state) {
   app.company = { ...defaults.company, ...state.company };
   app.sellers = state.sellers || [];
   app.vouchers = state.vouchers || [];
+  if (state.users) app.users = state.users;
   settingsForm = { ...app.company };
 }
 

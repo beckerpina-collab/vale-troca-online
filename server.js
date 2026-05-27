@@ -147,7 +147,7 @@ async function handleApi(req, res) {
       maxAge: Math.floor(SESSION_TTL_MS / 1000),
       path: "/",
     });
-    sendJson(res, 200, { user: publicUser(user), state: publicState() });
+    sendJson(res, 200, { user: publicUser(user), state: publicState(user) });
     return;
   }
 
@@ -172,7 +172,100 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/api/state") {
-    sendJson(res, 200, publicState());
+    sendJson(res, 200, publicState(user));
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/users") {
+    if (!isAdmin(user, res)) return;
+    sendJson(res, 200, { users: publicUsers() });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/users") {
+    if (!isAdmin(user, res)) return;
+    const body = await readJsonBody(req);
+    const newUser = sanitizeUserInput(body, true);
+    if (newUser.error) {
+      sendJson(res, 400, { error: newUser.error });
+      return;
+    }
+    if (db.users.some((item) => item.username.toLowerCase() === newUser.username.toLowerCase())) {
+      sendJson(res, 409, { error: "Esse usuario ja existe." });
+      return;
+    }
+
+    db.users.push({
+      id: crypto.randomUUID(),
+      username: newUser.username,
+      displayName: newUser.displayName,
+      role: newUser.role,
+      ...hashPassword(newUser.password),
+      createdAt: new Date().toISOString(),
+    });
+    await saveDb();
+    sendJson(res, 201, { users: publicUsers() });
+    return;
+  }
+
+  const userMatch = pathname.match(/^\/api\/users\/([a-zA-Z0-9-]+)$/);
+  if (userMatch) {
+    if (!isAdmin(user, res)) return;
+    const target = db.users.find((item) => item.id === userMatch[1]);
+    if (!target) {
+      sendJson(res, 404, { error: "Usuario nao encontrado." });
+      return;
+    }
+
+    if (req.method === "PATCH") {
+      const body = await readJsonBody(req);
+      const input = sanitizeUserInput(body, false);
+      if (input.error) {
+        sendJson(res, 400, { error: input.error });
+        return;
+      }
+      const changingUsername = input.username && input.username !== target.username;
+      if (
+        changingUsername &&
+        db.users.some((item) => item.id !== target.id && item.username.toLowerCase() === input.username.toLowerCase())
+      ) {
+        sendJson(res, 409, { error: "Esse usuario ja existe." });
+        return;
+      }
+      if (input.role && target.role === "admin" && input.role !== "admin" && adminCount() <= 1) {
+        sendJson(res, 400, { error: "Mantenha pelo menos um administrador." });
+        return;
+      }
+
+      target.username = input.username || target.username;
+      target.displayName = input.displayName || target.displayName;
+      target.role = input.role || target.role;
+      if (input.password) {
+        Object.assign(target, hashPassword(input.password));
+      }
+      target.updatedAt = new Date().toISOString();
+      await saveDb();
+      sendJson(res, 200, { users: publicUsers() });
+      return;
+    }
+
+    if (req.method === "DELETE") {
+      if (target.id === user.id) {
+        sendJson(res, 400, { error: "Voce nao pode remover seu proprio usuario logado." });
+        return;
+      }
+      if (target.role === "admin" && adminCount() <= 1) {
+        sendJson(res, 400, { error: "Mantenha pelo menos um administrador." });
+        return;
+      }
+      db.users = db.users.filter((item) => item.id !== target.id);
+      await saveDb();
+      sendJson(res, 200, { users: publicUsers() });
+      return;
+    }
+  }
+
+  if (!isAdmin(user, res) && ["/api/company", "/api/sellers"].some((prefix) => pathname.startsWith(prefix))) {
     return;
   }
 
@@ -180,7 +273,7 @@ async function handleApi(req, res) {
     const body = await readJsonBody(req);
     db.company = sanitizeCompany(body);
     await saveDb();
-    sendJson(res, 200, publicState());
+    sendJson(res, 200, publicState(user));
     return;
   }
 
@@ -198,7 +291,7 @@ async function handleApi(req, res) {
     db.sellers.push(seller);
     db.sellers.sort((a, b) => a.localeCompare(b, "pt-BR"));
     await saveDb();
-    sendJson(res, 201, publicState());
+    sendJson(res, 201, publicState(user));
     return;
   }
 
@@ -207,7 +300,7 @@ async function handleApi(req, res) {
     const seller = decodeURIComponent(sellerMatch[1]);
     db.sellers = db.sellers.filter((item) => item !== seller);
     await saveDb();
-    sendJson(res, 200, publicState());
+    sendJson(res, 200, publicState(user));
     return;
   }
 
@@ -225,7 +318,7 @@ async function handleApi(req, res) {
     voucher.createdBy = user.id;
     db.vouchers.push(voucher);
     await saveDb();
-    sendJson(res, 201, { voucher, state: publicState() });
+    sendJson(res, 201, { voucher, state: publicState(user) });
     return;
   }
 
@@ -248,14 +341,18 @@ async function handleApi(req, res) {
       voucher.updatedAt = new Date().toISOString();
       voucher.updatedBy = user.id;
       await saveDb();
-      sendJson(res, 200, publicState());
+      sendJson(res, 200, publicState(user));
       return;
     }
 
     if (req.method === "DELETE") {
+      if (user.role !== "admin") {
+        sendJson(res, 403, { error: "Somente administradores podem excluir vales." });
+        return;
+      }
       db.vouchers = db.vouchers.filter((item) => item.id !== voucher.id);
       await saveDb();
-      sendJson(res, 200, publicState());
+      sendJson(res, 200, publicState(user));
       return;
     }
   }
@@ -263,20 +360,40 @@ async function handleApi(req, res) {
   sendJson(res, 404, { error: "Rota nao encontrada." });
 }
 
-function publicState() {
-  return {
+function publicState(user) {
+  const state = {
     company: db.company,
     sellers: db.sellers,
     vouchers: db.vouchers,
   };
+  if (user?.role === "admin") {
+    state.users = publicUsers();
+  }
+  return state;
 }
 
 function publicUser(user) {
   return {
+    id: user.id,
     username: user.username,
     displayName: user.displayName,
     role: user.role,
+    createdAt: user.createdAt,
   };
+}
+
+function publicUsers() {
+  return db.users.map(publicUser).sort((a, b) => a.username.localeCompare(b.username, "pt-BR"));
+}
+
+function isAdmin(user, res) {
+  if (user.role === "admin") return true;
+  sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+  return false;
+}
+
+function adminCount() {
+  return db.users.filter((item) => item.role === "admin").length;
 }
 
 function sanitizeCompany(body) {
@@ -301,6 +418,25 @@ function sanitizeVoucher(body) {
     vendedora: clean(body.vendedora, 80),
     observacao: clean(body.observacao, 250),
   };
+}
+
+function sanitizeUserInput(body, requirePassword) {
+  const username = clean(body.username, 40);
+  const displayName = clean(body.displayName, 80) || username;
+  const role = ["admin", "operador"].includes(body.role)
+    ? body.role
+    : requirePassword
+      ? "operador"
+      : "";
+  const password = String(body.password || "");
+
+  if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username)) {
+    return { error: "Use um usuario com 3 a 40 caracteres, sem espacos." };
+  }
+  if ((requirePassword || password) && password.length < 6) {
+    return { error: "A senha precisa ter pelo menos 6 caracteres." };
+  }
+  return { username, displayName, role, password };
 }
 
 function clean(value, maxLength) {

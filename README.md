@@ -25,6 +25,23 @@ Antes de publicar online, configure um usuario e senha mais fortes:
 ADMIN_USER=seu_usuario ADMIN_PASSWORD=sua_senha_forte npm start
 ```
 
+As variaveis acima definem o primeiro administrador quando o banco ainda nao existe.
+Depois disso, altere usuarios pelo proprio sistema:
+
+1. Entre como administrador.
+2. Abra `Config`.
+3. Use o painel `Usuarios`.
+
+No painel de usuarios voce pode:
+
+- criar usuario `admin` ou `operador`;
+- alterar nome de usuario;
+- alterar nome exibido;
+- trocar senha preenchendo o campo `nova senha`;
+- remover usuarios.
+
+O sistema sempre exige pelo menos um administrador.
+
 Os dados ficam salvos no servidor, em `data/database.json`. Isso inclui:
 
 - dados da empresa;
@@ -35,6 +52,7 @@ Os dados ficam salvos no servidor, em `data/database.json`. Isso inclui:
 ## Funcionalidades
 
 - login por usuario e senha;
+- cadastro e edicao de usuarios;
 - emissao de vale troca por NFC;
 - validade automatica conforme configuracao;
 - escolha da vendedora;

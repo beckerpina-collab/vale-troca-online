@@ -511,7 +511,12 @@ textarea {
   margin-bottom: 12px;
 }
 
-.seller-list {
+.users-panel {
+  grid-column: 1 / -1;
+}
+
+.seller-list,
+.user-list {
   display: grid;
   gap: 8px;
 }
@@ -530,6 +535,27 @@ textarea {
 .seller-item strong {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.user-form,
+.user-item {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.9fr) minmax(150px, 1fr) minmax(110px, 0.6fr)
+    minmax(130px, 0.8fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.user-form {
+  margin-bottom: 14px;
+}
+
+.user-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 10px;
 }
 
 .toast {
@@ -655,10 +681,17 @@ svg {
   }
 
   .seller-form,
+  .user-form,
+  .user-item,
   .form-actions,
   .config-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .user-form,
+  .user-item {
+    display: flex;
   }
 
   .btn {
