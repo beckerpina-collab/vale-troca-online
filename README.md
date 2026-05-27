@@ -42,6 +42,31 @@ No painel de usuarios voce pode:
 
 O sistema sempre exige pelo menos um administrador.
 
+## Esqueci a senha do administrador
+
+Use o reset de emergencia somente quando ninguem consegue entrar.
+
+No Render:
+
+1. Abra o servico do app.
+2. Va em `Environment`.
+3. Adicione:
+   - `ADMIN_RESET_USER` com o usuario que quer recuperar, por exemplo `admin`;
+   - `ADMIN_RESET_PASSWORD` com a nova senha.
+4. Salve as variaveis.
+5. Faca um novo deploy/redeploy.
+6. Entre no app com a senha nova.
+7. Volte no Render e remova `ADMIN_RESET_PASSWORD`.
+8. Faca outro redeploy.
+
+Se `ADMIN_RESET_USER` nao existir, o sistema cria esse usuario como administrador.
+
+Localmente, voce pode iniciar assim:
+
+```bash
+ADMIN_RESET_USER=admin ADMIN_RESET_PASSWORD=nova_senha npm start
+```
+
 Os dados ficam salvos no servidor, em `data/database.json`. Isso inclui:
 
 - dados da empresa;

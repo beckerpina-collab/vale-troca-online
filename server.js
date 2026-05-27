@@ -81,6 +81,8 @@ async function bootstrap() {
     ];
     await saveDb();
   }
+
+  await applyEmergencyPasswordReset();
 }
 
 async function readDb() {
@@ -394,6 +396,36 @@ function isAdmin(user, res) {
 
 function adminCount() {
   return db.users.filter((item) => item.role === "admin").length;
+}
+
+async function applyEmergencyPasswordReset() {
+  const resetPassword = process.env.ADMIN_RESET_PASSWORD;
+  if (!resetPassword) return;
+  if (resetPassword.length < 6) {
+    console.warn("ADMIN_RESET_PASSWORD ignorado: use pelo menos 6 caracteres.");
+    return;
+  }
+
+  const username = process.env.ADMIN_RESET_USER || process.env.ADMIN_USER || "admin";
+  let user = db.users.find((item) => item.username === username);
+
+  if (!user) {
+    user = {
+      id: crypto.randomUUID(),
+      username,
+      displayName: username,
+      role: "admin",
+      createdAt: new Date().toISOString(),
+    };
+    db.users.push(user);
+  }
+
+  Object.assign(user, hashPassword(resetPassword), {
+    role: "admin",
+    updatedAt: new Date().toISOString(),
+  });
+  await saveDb();
+  console.log(`Senha redefinida para o administrador "${username}". Remova ADMIN_RESET_PASSWORD depois de entrar.`);
 }
 
 function sanitizeCompany(body) {
